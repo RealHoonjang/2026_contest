@@ -6,5 +6,5 @@
  * 예: apiOrigin: "https://2026-contest.vercel.app"
  */
 window.APP_CONFIG = {
-  apiOrigin: "",
+  apiOrigin: "https://2026-contest.vercel.app",
 };
