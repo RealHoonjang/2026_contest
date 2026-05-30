@@ -2,6 +2,12 @@
 
 중학생 진로·고교 연계 웹 프로토타입입니다. 진로심리검사, 진로목표 설정, 고교 탐색, 교사·학부모 상담 공유 기능을 제공합니다.
 
+## GitHub Pages로 미리보기
+
+[https://realhoonjang.github.io/2026_contest/](https://realhoonjang.github.io/2026_contest/) 에서 UI를 볼 수 있습니다.
+
+> GitHub Pages는 정적 호스팅이라 **커리어넷 API(검사·고교 목록)** 는 동작하지 않습니다. API까지 쓰려면 아래처럼 로컬에서 실행하세요.
+
 ## 실행 방법
 
 ```bash

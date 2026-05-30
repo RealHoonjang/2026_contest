@@ -1,4 +1,14 @@
+function isStaticHost() {
+  return location.hostname.endsWith(".github.io") || location.protocol === "file:";
+}
+
 async function backendFetch(path) {
+  if (isStaticHost()) {
+    return new Response(JSON.stringify({ error: "GitHub Pages에서는 커리어넷 API를 쓸 수 없어요. 로컬에서 npm start로 실행해 주세요." }), {
+      status: 503,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
   return fetch(`/api/backend${path.startsWith("/") ? path : `/${path}`}`);
 }
 
