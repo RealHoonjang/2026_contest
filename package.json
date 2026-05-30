@@ -1,0 +1,14 @@
+{
+  "name": "careernet-pathfinder",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "scripts": {
+    "start": "node server/index.mjs",
+    "dev": "node server/index.mjs"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2"
+  }
+}
