@@ -16,8 +16,16 @@ function setCors(req, res) {
 
 function pathSegments(req) {
   const raw = req.query.path;
-  if (!raw) return [];
-  return Array.isArray(raw) ? raw : [raw];
+  if (raw != null && raw !== "") {
+    return Array.isArray(raw) ? raw : [raw];
+  }
+  const u = (req.url || "").split("?")[0];
+  const prefix = "/api/backend/";
+  if (u.startsWith(prefix)) {
+    const rest = u.slice(prefix.length);
+    return rest ? rest.split("/").filter(Boolean) : [];
+  }
+  return [];
 }
 
 export default async function handler(req, res) {
