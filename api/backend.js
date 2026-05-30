@@ -1,23 +1,22 @@
-import { forwardCnetGetOpenApi, forwardInspct } from "../../server/careernetProxy.mjs";
+import { forwardCnetGetOpenApi, forwardInspct } from "../server/careernetProxy.mjs";
 
 function setCors(req, res) {
   const origin = req.headers.origin;
-  const allowed = (process.env.ALLOWED_ORIGINS ||
-    "https://realhoonjang.github.io,http://localhost:3000,http://127.0.0.1:3000")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  if (origin && allowed.includes(origin)) {
+  if (origin) {
     res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
+  } else {
+    res.setHeader("Access-Control-Allow-Origin", "*");
   }
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Accept");
 }
 
 function pathSegments(req) {
-  const raw = req.query.path;
-  if (raw != null && raw !== "") {
-    return Array.isArray(raw) ? raw : [raw];
+  const fullPath = req.query.fullPath;
+  if (fullPath != null && fullPath !== "") {
+    const raw = Array.isArray(fullPath) ? fullPath.join("/") : String(fullPath);
+    return raw.split("/").filter(Boolean);
   }
   const u = (req.url || "").split("?")[0];
   const prefix = "/api/backend/";
@@ -44,8 +43,9 @@ export default async function handler(req, res) {
   try {
     if (parts[0] === "cnet") {
       const queryObj = { ...req.query };
-      delete queryObj.path;
+      delete queryObj.fullPath;
       const out = await forwardCnetGetOpenApi(queryObj, apiKey);
+      setCors(req, res);
       res.status(out.status);
       res.setHeader("Content-Type", out.contentType);
       return res.send(out.body);
@@ -55,14 +55,17 @@ export default async function handler(req, res) {
       const rest = `/${parts.slice(1).join("/")}`;
       const url = new URL(req.url || "/", "http://localhost");
       const out = await forwardInspct(`${rest}${url.search}`, apiKey);
+      setCors(req, res);
       res.status(out.status);
       res.setHeader("Content-Type", out.contentType);
       return res.send(out.body);
     }
 
+    setCors(req, res);
     return res.status(404).json({ error: "경로를 찾을 수 없습니다." });
   } catch (e) {
     console.error(e);
+    setCors(req, res);
     return res.status(500).json({ error: "요청 처리 중 오류가 났습니다." });
   }
 }

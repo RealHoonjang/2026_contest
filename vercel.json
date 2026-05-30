@@ -1,8 +1,18 @@
 {
   "rewrites": [
+    { "source": "/api/backend/(.*)", "destination": "/api/backend?fullPath=$1" },
     { "source": "/css/(.*)", "destination": "/public/css/$1" },
     { "source": "/js/(.*)", "destination": "/public/js/$1" },
     { "source": "/favicon.svg", "destination": "/public/favicon.svg" },
     { "source": "/((?!api/).*)", "destination": "/public/index.html" }
+  ],
+  "headers": [
+    {
+      "source": "/api/backend/(.*)",
+      "headers": [
+        { "key": "Access-Control-Allow-Methods", "value": "GET, OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, Accept" }
+      ]
+    }
   ]
 }
