@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: 2026-contest
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: CAREERNET_API_KEY
+        sync: false
+      - key: ALLOWED_ORIGINS
+        value: https://realhoonjang.github.io,http://localhost:3000

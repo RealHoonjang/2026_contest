@@ -1,15 +1,12 @@
-function isStaticHost() {
-  return location.hostname.endsWith(".github.io") || location.protocol === "file:";
+function getApiBase() {
+  const origin = (window.APP_CONFIG?.apiOrigin || "").replace(/\/$/, "");
+  if (origin) return `${origin}/api/backend`;
+  return "/api/backend";
 }
 
 async function backendFetch(path) {
-  if (isStaticHost()) {
-    return new Response(JSON.stringify({ error: "GitHub Pages에서는 커리어넷 API를 쓸 수 없어요. 로컬에서 npm start로 실행해 주세요." }), {
-      status: 503,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
-  return fetch(`/api/backend${path.startsWith("/") ? path : `/${path}`}`);
+  const url = `${getApiBase()}${path.startsWith("/") ? path : `/${path}`}`;
+  return fetch(url);
 }
 
 async function readJson(res) {
@@ -18,7 +15,20 @@ async function readJson(res) {
 }
 
 async function apiGet(path) {
-  const res = await backendFetch(path);
+  const onPages = location.hostname.endsWith(".github.io");
+  const noApi = onPages && !(window.APP_CONFIG?.apiOrigin || "").trim();
+  if (noApi) {
+    return {
+      ok: false,
+      error: "API 서버 주소가 설정되지 않았습니다. Vercel/Render에 서버를 배포한 뒤 public/js/config.js 의 apiOrigin을 설정해 주세요.",
+    };
+  }
+  let res;
+  try {
+    res = await backendFetch(path);
+  } catch {
+    return { ok: false, error: "API 서버에 연결하지 못했습니다. 배포 URL과 config.js 를 확인해 주세요." };
+  }
   if (res.status === 503) {
     const j = await res.json().catch(() => ({}));
     return { ok: false, error: j.error || "서비스 준비 중입니다." };

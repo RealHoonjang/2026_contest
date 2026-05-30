@@ -23,6 +23,23 @@ const app = express();
 
 app.disable("x-powered-by");
 
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ||
+  "https://realhoonjang.github.io,http://localhost:3000,http://127.0.0.1:3000")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  }
+  if (req.method === "OPTIONS") return res.sendStatus(204);
+  next();
+});
+
 app.get("/api/backend/health", (_req, res) => {
   res.json({
     ok: true,
