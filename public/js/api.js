@@ -88,6 +88,18 @@ function extractV2TestList(data) {
   return out;
 }
 
+/** 커리어넷 v1 진로흥미탐색 7점 척도 (API에서 6점이 "보통"으로 오는 오류 보정) */
+const V1_LIKERT_BY_SCORE = {
+  1: "매우낮음", 2: "낮음", 3: "약간낮음", 4: "보통",
+  5: "약간높음", 6: "높음", 7: "매우높음",
+};
+
+function v1OptionLabel(score, rawLabel) {
+  const s = Number(score);
+  if (s >= 1 && s <= 7 && V1_LIKERT_BY_SCORE[s]) return V1_LIKERT_BY_SCORE[s];
+  return String(rawLabel || "").trim();
+}
+
 function normalizeV1Shape(payload) {
   const arr = payload?.RESULT || payload?.result;
   if (!Array.isArray(arr) || !arr.length || typeof arr[0]?.question !== "string") return null;
@@ -100,7 +112,7 @@ function normalizeV1Shape(payload) {
       const label = item[`answer${String(i).padStart(2,"0")}`];
       if (typeof label !== "string" || !label.trim()) continue;
       const score = item[`answerScore${String(i).padStart(2,"0")}`];
-      options.push({ id: String(score || options.length + 1), label: label.trim() });
+      options.push({ id: String(score || options.length + 1), label: v1OptionLabel(score, label) });
     }
     if (options.length >= 2) out.push({ id: String(item.qitemNo || out.length + 1), prompt, options });
   }
