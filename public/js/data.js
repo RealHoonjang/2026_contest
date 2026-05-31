@@ -7,6 +7,70 @@ function tagLabel(t) { return TAG_LABELS[t] || t; }
 
 const REGIONS = ["전체","서울","부산","대구","인천","광주","대전","울산","세종","경기","강원","충북","충남","전북","전남","경북","경남","제주"];
 
+/** 커리어넷 학교 API 지역 코드 (career.go.kr) */
+const REGION_TO_CODE = {
+  전체: "전체", 서울: "100260", 부산: "100267", 인천: "100269", 대전: "100271",
+  대구: "100272", 울산: "100273", 광주: "100275", 경기: "100276", 강원: "100278",
+  충북: "100280", 충남: "100281", 전북: "100282", 전남: "100283", 경북: "100285",
+  경남: "100291", 제주: "100292", 세종: "100276",
+};
+
+const REGION_FULL = {
+  서울: "서울특별시", 부산: "부산광역시", 대구: "대구광역시", 인천: "인천광역시",
+  광주: "광주광역시", 대전: "대전광역시", 울산: "울산광역시", 세종: "세종특별자치시",
+  경기: "경기도", 강원: "강원", 충북: "충청북도", 충남: "충청남도",
+  전북: "전북", 전남: "전라남도", 경북: "경상북도", 경남: "경상남도", 제주: "제주",
+};
+
+/** 검사 태그 → 추천 고교 유형·키워드 */
+const TAG_SCHOOL_HINTS = {
+  stem: { sch1: ["100364", "100363", "100362"], keywords: ["과학", "공업", "공고", "마이스터", "SW", "로봇", "정보", "전자", "기계", "특목", "과고"] },
+  health: { sch1: ["100362", "100363"], keywords: ["보건", "보호", "간호", "의료", "생명", "약학"] },
+  art: { sch1: ["100364", "100362", "100365"], keywords: ["예술", "미술", "공연", "디자인", "문화", "영상", "음악"] },
+  social: { sch1: ["100362", "100365"], keywords: ["인문", "사회", "교육", "국제", "외국어", "자율"] },
+  biz: { sch1: ["100362", "100365", "100363"], keywords: ["상업", "경영", "국제", "외국어", "자율", "경제"] },
+  default: { sch1: ["100362"], keywords: ["일반", "종합"] },
+};
+
+/** API 미응답 시 참고용 샘플 고교 (지역·진로 태그 포함) */
+const FALLBACK_HIGH_SCHOOLS = [
+  { id: "fb_s1", name: "서울과학고등학교", region: "서울", address: "서울특별시 종로구 혜화로 136", schoolType: "특수목적고", tags: ["stem"], lat: 37.589, lng: 126.997 },
+  { id: "fb_s2", name: "경기과학고등학교", region: "경기", address: "경기도 수원시 영통구", schoolType: "특수목적고", tags: ["stem"], lat: 37.289, lng: 127.046 },
+  { id: "fb_s3", name: "한국과학영재학교", region: "경기", address: "경기도 수원시 장안구", schoolType: "특수목적고", tags: ["stem"], lat: 37.298, lng: 127.010 },
+  { id: "fb_s4", name: "선린인터넷고등학교", region: "서울", address: "서울특별시 강남구", schoolType: "특수목적고", tags: ["stem"], lat: 37.497, lng: 127.028 },
+  { id: "fb_s5", name: "서울예술고등학교", region: "서울", address: "서울특별시 서초구", schoolType: "특수목적고", tags: ["art"], lat: 37.483, lng: 127.032 },
+  { id: "fb_s6", name: "보인고등학교", region: "서울", address: "서울특별시 중구", schoolType: "일반고", tags: ["social", "biz"], lat: 37.558, lng: 126.991 },
+  { id: "fb_s7", name: "대구과학고등학교", region: "대구", address: "대구광역시 북구", schoolType: "특수목적고", tags: ["stem"], lat: 35.886, lng: 128.582 },
+  { id: "fb_s8", name: "부산과학고등학교", region: "부산", address: "부산광역시 남구", schoolType: "특수목적고", tags: ["stem"], lat: 35.136, lng: 129.084 },
+  { id: "fb_s9", name: "인천전자마이스터고등학교", region: "인천", address: "인천광역시 연수구", schoolType: "특성화고", tags: ["stem"], lat: 37.410, lng: 126.678 },
+  { id: "fb_s10", name: "광주과학고등학교", region: "광주", address: "광주광역시 북구", schoolType: "특수목적고", tags: ["stem"], lat: 35.174, lng: 126.912 },
+  { id: "fb_s11", name: "대전외국어고등학교", region: "대전", address: "대전광역시 유성구", schoolType: "특수목적고", tags: ["social", "biz"], lat: 36.362, lng: 127.356 },
+  { id: "fb_s12", name: "울산마이스터고등학교", region: "울산", address: "울산광역시 남구", schoolType: "마이스터고", tags: ["stem"], lat: 35.538, lng: 129.311 },
+  { id: "fb_s13", name: "세종고등학교", region: "세종", address: "세종특별자치시", schoolType: "일반고", tags: ["default"], lat: 36.480, lng: 127.289 },
+  { id: "fb_s14", name: "춘천고등학교", region: "강원", address: "강원특별자치도 춘천시", schoolType: "일반고", tags: ["default"], lat: 37.882, lng: 127.729 },
+  { id: "fb_s15", name: "청주고등학교", region: "충북", address: "충청북도 청주시", schoolType: "일반고", tags: ["default"], lat: 36.635, lng: 127.491 },
+  { id: "fb_s16", name: "천안고등학교", region: "충남", address: "충청남도 천안시", schoolType: "일반고", tags: ["default"], lat: 36.815, lng: 127.147 },
+  { id: "fb_s17", name: "전주고등학교", region: "전북", address: "전북특별자치도 전주시", schoolType: "일반고", tags: ["default"], lat: 35.824, lng: 127.148 },
+  { id: "fb_s18", name: "목포고등학교", region: "전남", address: "전라남도 목포시", schoolType: "일반고", tags: ["default"], lat: 34.812, lng: 126.392 },
+  { id: "fb_s19", name: "포항고등학교", region: "경북", address: "경상북도 포항시", schoolType: "일반고", tags: ["default"], lat: 36.019, lng: 129.343 },
+  { id: "fb_s20", name: "창원고등학교", region: "경남", address: "경상남도 창원시", schoolType: "일반고", tags: ["default"], lat: 35.228, lng: 128.681 },
+  { id: "fb_s21", name: "제주고등학교", region: "제주", address: "제주특별자치도 제주시", schoolType: "일반고", tags: ["default"], lat: 33.499, lng: 126.531 },
+  { id: "fb_s22", name: "서울보건고등학교", region: "서울", address: "서울특별시 동대문구", schoolType: "특성화고", tags: ["health"], lat: 37.574, lng: 127.039 },
+  { id: "fb_s23", name: "경기상업고등학교", region: "경기", address: "경기도 수원시", schoolType: "특성화고", tags: ["biz"], lat: 37.263, lng: 127.029 },
+  { id: "fb_s24", name: "부산예술고등학교", region: "부산", address: "부산광역시 해운대구", schoolType: "특수목적고", tags: ["art"], lat: 35.163, lng: 129.160 },
+];
+
+function regionFromLabel(label) {
+  if (!label) return "전체";
+  for (const [shortName, full] of Object.entries(REGION_FULL)) {
+    if (label.includes(shortName) || label.includes(full)) return shortName;
+  }
+  if (label.includes("서울")) return "서울";
+  if (label.includes("부산")) return "부산";
+  if (label.includes("경기")) return "경기";
+  return "전체";
+}
+
 const V1_CATALOG = [{ q: "1", title: "진로흥미탐색", summary: "어떤 활동·직업에 끌리는지 넓게 살펴봅니다.", detail: "교과·동아리·활동 속에서 흥미가 드러나는 패턴을 정리하는 데 도움이 됩니다." }];
 
 const CAREER_CARDS = [

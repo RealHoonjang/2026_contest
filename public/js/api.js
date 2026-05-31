@@ -41,14 +41,165 @@ async function fetchV2TestList() { return apiGet("/inspct/openapi/v2/tests"); }
 async function fetchV2Questions(testNo) { return apiGet(`/inspct/openapi/v2/test?q=${encodeURIComponent(testNo)}`); }
 async function fetchV1Questions(q) { return apiGet(`/inspct/openapi/test/questions?q=${encodeURIComponent(q)}`); }
 
-async function fetchSchoolList(region) {
-  const q = new URLSearchParams({ svcType: "api", svcCode: "SCHOOL", contentType: "json", gubun: "고등학교", region: region || "전체", sch1: "전체" });
+async function fetchSchoolList(region, opts = {}) {
+  const code = REGION_TO_CODE[region] || region || "전체";
+  const q = new URLSearchParams({
+    svcType: "api", svcCode: "SCHOOL", contentType: "json", gubun: "고등학교",
+    region: code,
+    sch1: opts.sch1 || "전체",
+    thisPage: String(opts.page || 1),
+    perPage: String(opts.perPage || 50),
+  });
+  if (opts.search) q.set("searchSchulNm", opts.search);
   return apiGet(`/cnet/openapi/getOpenApi?${q}`);
+}
+
+function sch1CodesForTags(tags) {
+  const codes = new Set();
+  for (const t of (tags?.length ? tags : ["default"])) {
+    const h = TAG_SCHOOL_HINTS[t] || TAG_SCHOOL_HINTS.default;
+    (h.sch1 || []).forEach(c => codes.add(c));
+  }
+  return codes.size ? [...codes] : ["전체"];
 }
 
 function pickStr(row, keys) {
   for (const k of keys) { const v = row[k]; if (typeof v === "string" && v.trim()) return v.trim(); }
   return "";
+}
+
+function parseSchoolRow(row, i) {
+  const name = pickStr(row, ["schoolName", "SCHUL_NM", "SCHOOL_NM", "SCH_NM", "학교명", "name"]);
+  if (!name) return null;
+  const regionRaw = pickStr(row, ["region", "REGION"]);
+  return {
+    id: pickStr(row, ["seq", "SEQ"]) || `api_${i}_${name}`,
+    name,
+    address: pickStr(row, ["adres", "ADRES", "ADDR", "주소", "address"]),
+    region: regionFromLabel(regionRaw) !== "전체" ? regionFromLabel(regionRaw) : regionRaw,
+    regionLabel: regionRaw,
+    schoolType: pickStr(row, ["schoolType", "schoolGubun", "SCHOOL_TYPE", "SCHOOL_GUBUN"]),
+    link: pickStr(row, ["link", "LINK"]),
+    source: "api",
+  };
+}
+
+function parseSchools(data) {
+  const content = data?.dataSearch?.content;
+  const rows = Array.isArray(content) && content.length ? content : (findFirstArrayOfObjects(data) || []);
+  const seen = new Set();
+  const out = [];
+  for (let i = 0; i < rows.length; i++) {
+    const s = parseSchoolRow(rows[i], i);
+    if (!s || seen.has(s.name)) continue;
+    seen.add(s.name);
+    out.push(s);
+  }
+  return out;
+}
+
+function fallbackSchoolsForRegion(region) {
+  const r = region && region !== "전체" ? region : null;
+  const list = r ? FALLBACK_HIGH_SCHOOLS.filter(s => s.region === r) : FALLBACK_HIGH_SCHOOLS;
+  return list.map(s => ({ ...s, source: "reference" }));
+}
+
+function dedupeSchools(list) {
+  const seen = new Set();
+  return list.filter(s => {
+    if (seen.has(s.name)) return false;
+    seen.add(s.name);
+    return true;
+  });
+}
+
+async function fetchSchoolsForExplore(region, tags) {
+  const sch1List = tags?.length ? sch1CodesForTags(tags) : ["전체"];
+  const batches = [];
+  for (const sch1 of sch1List) {
+    for (let page = 1; page <= 2; page++) {
+      const res = await fetchSchoolList(region, { sch1, page, perPage: 50 });
+      if (!res.ok) break;
+      const rows = parseSchools(res.data);
+      if (!rows.length) break;
+      batches.push(...rows);
+      if (rows.length < 50) break;
+    }
+  }
+  const apiSchools = dedupeSchools(batches);
+  if (apiSchools.length) return { schools: apiSchools, fromApi: true };
+  return { schools: fallbackSchoolsForRegion(region), fromApi: false };
+}
+
+function haversineKm(lat1, lng1, lat2, lng2) {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function scoreSchool(school, { tags, userRegion, userLat, userLng }) {
+  let score = 0;
+  const reasons = [];
+  const tagList = tags?.length ? tags : ["default"];
+
+  for (const tag of tagList) {
+    if (school.tags?.includes(tag)) { score += 20; reasons.push(`${tagLabel(tag)} 맞춤`); }
+    const hints = TAG_SCHOOL_HINTS[tag] || TAG_SCHOOL_HINTS.default;
+    const hay = `${school.name} ${school.schoolType || ""} ${school.address || ""}`;
+    for (const kw of hints.keywords) {
+      if (hay.includes(kw)) { score += 12; reasons.push(`${kw} 관련`); break; }
+    }
+  }
+
+  if (userRegion && userRegion !== "전체") {
+    const inRegion = school.region === userRegion ||
+      (school.address && (school.address.includes(userRegion) || school.address.includes(REGION_FULL[userRegion] || "")));
+    if (inRegion) { score += 25; reasons.push(`${userRegion} 지역`); }
+  }
+
+  let distanceKm;
+  if (userLat != null && userLng != null && school.lat != null && school.lng != null) {
+    const km = haversineKm(userLat, userLng, school.lat, school.lng);
+    distanceKm = Math.round(km * 10) / 10;
+    if (km <= 8) { score += 35; reasons.push(`약 ${distanceKm}km`); }
+    else if (km <= 20) { score += 18; reasons.push(`인근 ${distanceKm}km`); }
+    else if (km <= 40) { score += 8; }
+  }
+
+  return { ...school, score, reasons: [...new Set(reasons)].slice(0, 3), ...(distanceKm != null ? { distanceKm } : {}) };
+}
+
+function recommendSchools(schools, opts) {
+  return schools
+    .map(s => scoreSchool(s, opts))
+    .filter(s => s.score > 0 || !opts.tags?.length)
+    .sort((a, b) => b.score - a.score || (a.distanceKm ?? 999) - (b.distanceKm ?? 999))
+    .slice(0, 12);
+}
+
+async function detectUserLocation() {
+  if (!navigator.geolocation) throw new Error("이 브라우저는 위치 정보를 지원하지 않습니다.");
+  const pos = await new Promise((resolve, reject) => {
+    navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: false, timeout: 12000, maximumAge: 300000 });
+  });
+  const { latitude, longitude } = pos.coords;
+  let region = "전체";
+  let label = `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
+  try {
+    const r = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json&accept-language=ko`,
+      { headers: { Accept: "application/json" } },
+    );
+    if (r.ok) {
+      const d = await r.json();
+      label = d.display_name || label;
+      const addr = d.address || {};
+      region = regionFromLabel(addr.state || addr.city || addr.province || label);
+    }
+  } catch { /* 좌표만 사용 */ }
+  return { lat: latitude, lng: longitude, region, label };
 }
 
 function findFirstArrayOfObjects(value, depth = 0) {
@@ -144,16 +295,6 @@ function normalizeInspctQuestions(payload) {
   const byPrompt = new Map();
   for (const q of out) if (!byPrompt.has(q.prompt)) byPrompt.set(q.prompt, q);
   return [...byPrompt.values()].length ? [...byPrompt.values()] : null;
-}
-
-function parseSchools(data) {
-  const rows = findFirstArrayOfObjects(data) || [];
-  return rows.map((row, i) => {
-    const name = pickStr(row, ["SCHUL_NM","SCHOOL_NM","schoolName","SCH_NM","학교명","name"]);
-    if (!name) return null;
-    const addr = pickStr(row, ["ADRES","ADDR","주소","address"]);
-    return { id: `${i}_${name}`, name, address: addr };
-  }).filter(Boolean).slice(0, 50);
 }
 
 function buildSemesterReport({ session, studentId, submissions, notes, careerGoal }) {

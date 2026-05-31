@@ -6,6 +6,9 @@ const menuBtn = document.getElementById("menu-btn");
 let testState = null;
 let exploreSchools = [];
 let exploreRegion = "전체";
+let exploreRecommended = [];
+let exploreLocation = null;
+let exploreSourceNote = "";
 
 function getRoute() {
   const raw = (location.hash || "#/").slice(1);
@@ -353,8 +356,69 @@ function pagePath() {
   if (session && prefs.studentId) bindDiscussion(session.id, prefs.studentId.trim(), "student", shareUrl);
 }
 
+function renderSchoolCard(s, opts = {}) {
+  const prefs = opts.prefs || loadPrefs();
+  const badges = (s.reasons || []).map(r => `<span class="tag tag-indigo">${esc(r)}</span>`).join("");
+  const meta = [
+    s.schoolType ? esc(s.schoolType) : "",
+    s.distanceKm != null ? `약 ${s.distanceKm}km` : "",
+    s.source === "reference" ? "참고 데이터" : "",
+  ].filter(Boolean).join(" · ");
+  return `<div class="card school-row ${opts.highlight ? "card-emerald" : ""}">
+    <div style="flex:1">
+      <b style="font-size:15px">${esc(s.name)}</b>
+      ${meta ? `<br><span style="font-size:12px;color:var(--indigo);font-weight:600">${meta}</span>` : ""}
+      ${s.address ? `<br><span style="font-size:13px;color:var(--slate-600)">${esc(s.address)}</span>` : ""}
+      ${badges ? `<div style="margin-top:8px">${badges}</div>` : ""}
+    </div>
+    <button type="button" class="btn-heart wish-add" data-id="${esc(s.id)}" data-name="${esc(s.name)}" title="위시리스트">♡</button></div>`;
+}
+
+function bindWishButtons(prefs, onUpdate) {
+  document.querySelectorAll(".wish-add").forEach(btn => btn.addEventListener("click", () => {
+    toggleWishlist(prefs, { id: btn.dataset.id, name: btn.dataset.name });
+    onUpdate?.();
+  }));
+}
+
+async function loadExploreSchools(region, tags, location) {
+  const poolRegion = region && region !== "전체" ? region : (location?.region || "전체");
+  const { schools, fromApi } = await fetchSchoolsForExplore(poolRegion, tags);
+  exploreSchools = schools;
+  exploreSourceNote = fromApi
+    ? "커리어넷 학교정보 API"
+    : "API 응답이 없어 참고용 샘플 고교 목록을 표시합니다. (학교정보 API 키 권한 확인 필요)";
+  const recOpts = {
+    tags,
+    userRegion: location?.region || poolRegion,
+    userLat: location?.lat,
+    userLng: location?.lng,
+  };
+  exploreRecommended = recommendSchools(schools, recOpts);
+  if (!exploreRecommended.length && schools.length) exploreRecommended = schools.slice(0, 8).map(s => ({ ...s, reasons: ["지역 목록"] }));
+}
+
 async function pageExplore() {
-  app.innerHTML = `${pageHeader("탐색", "🏫 고등학교 탐색", "관심 있는 지역의 고등학교를 찾아보고 위시리스트에 담아 보세요.")}
+  const prefs = loadPrefs();
+  const session = prefs.sessionId ? getSessionById(prefs.sessionId) : null;
+  const result = loadLatestResult(prefs);
+  const tags = result?.tags?.length ? result.tags : [];
+  if (exploreRegion === "전체" && (session?.region || prefs.region)) {
+    exploreRegion = session?.region || prefs.region || "전체";
+  }
+
+  app.innerHTML = `${pageHeader("탐색", "🏫 고등학교 탐색·추천", "검사 결과와 내 위치를 바탕으로 고교 후보를 추천해요.")}
+    <div id="explore-status" class="msg-info" style="margin-bottom:14px">학교 정보를 불러오는 중…</div>
+    <div class="flex-wrap no-print" style="margin-bottom:16px">
+      <button type="button" class="btn btn-primary" id="explore-geo">📍 내 위치 기준 추천</button>
+      <button type="button" class="btn btn-secondary" id="explore-test" ${tags.length ? "" : "disabled"}>✨ 검사 결과 기준 추천</button>
+    </div>
+    ${tags.length ? `<div class="card card-indigo" style="padding:14px 18px;margin-bottom:14px">
+      <span style="font-size:12px;font-weight:700;color:var(--indigo)">나의 관심 분야</span>
+      <div style="margin-top:8px">${tags.map(t => `<span class="tag tag-indigo">${esc(tagLabel(t))}</span>`).join("")}</div>
+    </div>` : `<div class="card card-amber" style="margin-bottom:14px"><p class="card-sub">검사를 하면 관심 분야에 맞는 고교 유형을 추천해 드려요. <a href="#/student/tests">검사하러 가기</a></p></div>`}
+    <div id="explore-recommended-wrap"></div>
+    <h2 class="section-title">지역별 목록</h2>
     <div class="card">
       <label class="field-label">시·도</label>
       <select id="explore-region">${REGIONS.map(r => `<option value="${r}" ${r === exploreRegion ? "selected" : ""}>${r}</option>`).join("")}</select>
@@ -362,34 +426,77 @@ async function pageExplore() {
     </div>
     <div id="explore-list"></div>
     <h2 class="section-title">♥ 위시리스트</h2><div id="wishlist"></div>`;
-  const prefs = loadPrefs();
+
   const renderWish = () => {
     const wl = loadWishlist(prefs);
     document.getElementById("wishlist").innerHTML = wl.length ?
       wl.map(s => `<div class="card school-row card-sky">
         <div><span style="font-size:18px;margin-right:8px">♥</span><b style="font-size:15px">${esc(s.name)}</b></div></div>`).join("") :
-      '<p class="msg-info">아직 담은 학교가 없어요. 위 목록에서 ♡ 버튼을 눌러 보세요.</p>';
+      '<p class="msg-info">아직 담은 학교가 없어요. 추천·목록에서 ♡ 버튼을 눌러 보세요.</p>';
   };
+
+  const renderRecommended = () => {
+    const el = document.getElementById("explore-recommended-wrap");
+    if (!el) return;
+    if (!exploreRecommended.length) {
+      el.innerHTML = "";
+      return;
+    }
+    el.innerHTML = `<h2 class="section-title">✨ 맞춤 추천</h2>
+      <p class="card-sub" style="margin:-8px 0 12px">${esc(exploreSourceNote)}</p>
+      ${exploreRecommended.map(s => renderSchoolCard(s, { highlight: true, prefs })).join("")}`;
+    bindWishButtons(prefs, renderWish);
+  };
+
   const renderList = () => {
     document.getElementById("explore-list").innerHTML = exploreSchools.length ?
-      exploreSchools.map(s => `<div class="card school-row">
-        <div><b style="font-size:15px">${esc(s.name)}</b>${s.address ? `<br><span style="font-size:13px;color:var(--slate-600)">${esc(s.address)}</span>` : ""}</div>
-        <button type="button" class="btn-heart wish-add" data-id="${esc(s.id)}" data-name="${esc(s.name)}" title="위시리스트">♡</button></div>`).join("") :
+      exploreSchools.map(s => renderSchoolCard(s, { prefs })).join("") :
       '<p class="msg-info">목록이 없습니다. 지역을 선택하고 불러오기를 누르세요.</p>';
-    document.querySelectorAll(".wish-add").forEach(btn => btn.addEventListener("click", () => {
-      toggleWishlist(prefs, { id: btn.dataset.id, name: btn.dataset.name });
-      renderWish();
-    }));
+    bindWishButtons(prefs, renderWish);
   };
-  document.getElementById("explore-load").addEventListener("click", async () => {
+
+  const setStatus = (msg, type = "info") => {
+    const el = document.getElementById("explore-status");
+    if (!el) return;
+    el.className = type === "error" ? "msg msg-error" : "msg-info";
+    el.textContent = msg;
+  };
+
+  const refresh = async ({ useGeo = false, useTest = false } = {}) => {
+    setStatus("학교 정보를 분석하는 중…");
+    try {
+      if (useGeo) {
+        exploreLocation = await detectUserLocation();
+        if (exploreLocation.region && exploreLocation.region !== "전체") {
+          exploreRegion = exploreLocation.region;
+          const sel = document.getElementById("explore-region");
+          if (sel) sel.value = exploreRegion;
+        }
+        setStatus(`📍 ${exploreLocation.label || exploreLocation.region} 기준으로 추천합니다.`);
+      }
+      const activeTags = useTest && tags.length ? tags : (tags.length ? tags : undefined);
+      await loadExploreSchools(exploreRegion, activeTags, exploreLocation);
+      renderRecommended();
+      renderList();
+      renderWish();
+      if (!useGeo) setStatus(exploreSourceNote);
+    } catch (e) {
+      setStatus(e.message || "고교 정보를 불러오지 못했습니다.", "error");
+      await loadExploreSchools(exploreRegion, tags.length ? tags : undefined, exploreLocation);
+      renderRecommended();
+      renderList();
+    }
+  };
+
+  document.getElementById("explore-geo").addEventListener("click", () => refresh({ useGeo: true, useTest: tags.length > 0 }));
+  document.getElementById("explore-test")?.addEventListener("click", () => refresh({ useTest: true }));
+  document.getElementById("explore-load").addEventListener("click", () => {
     exploreRegion = document.getElementById("explore-region").value;
-    document.getElementById("explore-list").innerHTML = '<p class="msg-info">불러오는 중…</p>';
-    const res = await fetchSchoolList(exploreRegion);
-    exploreSchools = res.ok ? parseSchools(res.data) : [];
-    renderList();
+    refresh({ useTest: tags.length > 0 });
   });
+
   renderWish();
-  renderList();
+  await refresh({ useTest: tags.length > 0 });
 }
 
 function pagePrint() {
