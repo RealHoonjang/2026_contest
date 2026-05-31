@@ -81,7 +81,14 @@ const CAREER_CARDS = [
   { tag: "biz", label: TAG_LABELS.biz, jobs: ["마케터·기획자","회계·재무","창업·스타트업"], majors: ["경영학","경제학","회계·세무"], certs: ["전산회계","전자상거래관리사"], resources: ["창업 캠프","경제 동아리","기업 견학"] },
 ];
 
-const SCHOOL_TYPE_GUIDES = [
+const HIGH_SCHOOL_TYPES = [
+  { value: "전체", label: "전체 종류" },
+  { value: "100362", label: "일반고" },
+  { value: "100363", label: "특성화·전문계" },
+  { value: "100364", label: "특목고" },
+  { value: "100365", label: "자율고" },
+];
+
   { id: "general", title: "일반고등학교", shortTitle: "일반고", forCareer: "여러 분야를 넓게 탐색하고 내신·수능 기반으로 대학·전공을 선택", summary: "교과 중심 교육과 동아리·자율 활동을 통해 진로를 점진적으로 구체화", bullets: ["다양한 진로와 연결 가능","자유학기·진로연계로 흥미 검증","고교학점제로 대학 학과 연계"] },
   { id: "specialized", title: "특성화고·전문계", shortTitle: "특성화·전문계", forCareer: "특정 산업 분야에 빠르게 몰입하고 싶은 경우", summary: "현장 중심 실습과 자격·기능 습득", bullets: ["직무 체험으로 '내가 맞는 일' 확인","학과·자격 연계 로드맵"] },
   { id: "meister", title: "마이스터고", shortTitle: "마이스터고", forCareer: "첨단·제조·산업 현장의 기술 인재", summary: "기업 참여형 교육과 현장 맞춤 훈련", bullets: ["산업 수요 맞춤 커리큘럼","취업·기술대학 등 다양한 출로"] },

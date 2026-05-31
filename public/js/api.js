@@ -179,6 +179,40 @@ function recommendSchools(schools, opts) {
     .slice(0, 12);
 }
 
+async function fetchSchoolsByFilter(region, sch1) {
+  const code = sch1 && sch1 !== "전체" ? sch1 : "전체";
+  const batches = [];
+  for (let page = 1; page <= 2; page++) {
+    const res = await fetchSchoolList(region, { sch1: code, page, perPage: 50 });
+    if (!res.ok) break;
+    const rows = parseSchools(res.data);
+    if (!rows.length) break;
+    batches.push(...rows);
+    if (rows.length < 50) break;
+  }
+  let schools = dedupeSchools(batches);
+  if (schools.length) {
+    if (code !== "전체") schools = schools.filter(s => matchesSch1(s, code));
+    return { schools, fromApi: true };
+  }
+  schools = fallbackSchoolsForRegion(region);
+  if (code !== "전체") schools = schools.filter(s => matchesSch1(s, code));
+  if (!schools.length && region !== "전체") schools = fallbackSchoolsForRegion("전체").filter(s => matchesSch1(s, code));
+  return { schools, fromApi: false };
+}
+
+function matchesSch1(school, sch1) {
+  if (!sch1 || sch1 === "전체") return true;
+  const t = `${school.name} ${school.schoolType || ""} ${school.address || ""}`;
+  const rules = {
+    "100362": /일반|종합/,
+    "100363": /특성|공업|상업|마이스터|전문|직업/,
+    "100364": /특수|특목|과학|예술|외국어|영재|국제|과고/,
+    "100365": /자율/,
+  };
+  return rules[sch1] ? rules[sch1].test(t) : true;
+}
+
 async function detectUserLocation() {
   if (!navigator.geolocation) throw new Error("이 브라우저는 위치 정보를 지원하지 않습니다.");
   const pos = await new Promise((resolve, reject) => {

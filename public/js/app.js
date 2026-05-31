@@ -74,6 +74,95 @@ function renderSchoolGuides() {
   </div>`).join("")}</div>`;
 }
 
+function renderSchoolSearchBlock(prefix, opts = {}) {
+  const { tags = [], defaultRegion = "경기", showGeo = true } = opts;
+  const regionOpts = REGIONS.filter(r => r !== "전체").map(r =>
+    `<option value="${r}" ${r === defaultRegion ? "selected" : ""}>${r}</option>`).join("");
+  const typeOpts = HIGH_SCHOOL_TYPES.map(t =>
+    `<option value="${t.value}">${esc(t.label)}</option>`).join("");
+  return `<div class="card" id="${prefix}-panel" style="margin-top:16px;border:2px solid #a7f3d0;background:linear-gradient(135deg,#ecfdf5,#fff)">
+    <div class="card-head"><span class="icon-box emerald">🔍</span><div>
+      <div class="card-title">고등학교 검색</div>
+      <p class="card-sub">종류와 지역을 선택해 고교를 찾아보세요.${tags.length ? " 검사 관심 분야도 반영됩니다." : ""}</p>
+    </div></div>
+    <div class="form-row form-row-2">
+      <div><label class="field-label">지역</label><select id="${prefix}-region">${regionOpts}</select></div>
+      <div><label class="field-label">고교 종류</label><select id="${prefix}-type">${typeOpts}</select></div>
+    </div>
+    <div class="flex-wrap" style="margin-top:14px">
+      <button type="button" class="btn btn-primary btn-sm" id="${prefix}-search">🔍 검색하기</button>
+      ${showGeo ? `<button type="button" class="btn btn-secondary btn-sm" id="${prefix}-geo">📍 내 위치</button>` : ""}
+      <a href="#/student/explore" class="btn btn-secondary btn-sm">🏫 탐색 페이지</a>
+    </div>
+    <p id="${prefix}-status" class="msg-info" style="margin-top:14px"></p>
+    <div id="${prefix}-results"></div>
+  </div>`;
+}
+
+function bindSchoolSearchBlock(prefix, opts = {}) {
+  const prefs = opts.prefs || loadPrefs();
+  const tags = opts.tags || [];
+  let userLoc = null;
+
+  const setStatus = (msg, isError) => {
+    const el = document.getElementById(`${prefix}-status`);
+    if (!el) return;
+    el.className = isError ? "msg msg-error" : "msg-info";
+    el.textContent = msg;
+  };
+
+  const renderResults = (schools, note) => {
+    const el = document.getElementById(`${prefix}-results`);
+    if (!el) return;
+    if (!schools.length) {
+      el.innerHTML = '<p class="msg-info">조건에 맞는 학교가 없습니다. 지역이나 종류를 바꿔 보세요.</p>';
+      return;
+    }
+    const ranked = recommendSchools(schools, {
+      tags,
+      userRegion: document.getElementById(`${prefix}-region`)?.value,
+      userLat: userLoc?.lat,
+      userLng: userLoc?.lng,
+    });
+    const list = (ranked.length ? ranked : schools).slice(0, 15);
+    el.innerHTML = `<p class="card-sub" style="margin-bottom:10px">${esc(note)} · ${list.length}곳</p>
+      ${list.map(s => renderSchoolCard(s, { highlight: (s.score || 0) > 20, prefs })).join("")}`;
+    bindWishButtons(prefs);
+  };
+
+  const runSearch = async () => {
+    const region = document.getElementById(`${prefix}-region`)?.value || "경기";
+    const sch1 = document.getElementById(`${prefix}-type`)?.value || "전체";
+    setStatus("학교 정보를 불러오는 중…");
+    try {
+      const { schools, fromApi } = await fetchSchoolsByFilter(region, sch1);
+      const note = fromApi ? "커리어넷 학교정보 API" : "참고용 샘플 데이터 (API 미연동 시)";
+      setStatus(`${region} · ${HIGH_SCHOOL_TYPES.find(t => t.value === sch1)?.label || "전체"} 검색 완료`);
+      renderResults(schools, note);
+    } catch (e) {
+      setStatus(e.message || "검색에 실패했습니다.", true);
+    }
+  };
+
+  document.getElementById(`${prefix}-search`)?.addEventListener("click", runSearch);
+  document.getElementById(`${prefix}-geo`)?.addEventListener("click", async () => {
+    setStatus("위치 정보를 확인하는 중…");
+    try {
+      userLoc = await detectUserLocation();
+      if (userLoc.region && userLoc.region !== "전체") {
+        const sel = document.getElementById(`${prefix}-region`);
+        if (sel) sel.value = userLoc.region;
+      }
+      setStatus(`📍 ${userLoc.label || userLoc.region} 기준으로 검색합니다.`);
+      await runSearch();
+    } catch (e) {
+      setStatus(e.message || "위치를 가져올 수 없습니다.", true);
+    }
+  });
+
+  if (opts.autoSearch) runSearch();
+}
+
 function renderUniGuides(tags) {
   return `<div class="guide-grid">${universityGuidesForTags(tags).map(g => `<div class="card card-sky">
     <div class="card-title">🎓 ${esc(g.label)}</div>
@@ -349,10 +438,11 @@ function pagePath() {
       <div class="grid-2" style="margin-top:16px">${FREE_SEMESTER.pillars.map(p => `<div style="padding:12px;background:var(--slate-50);border-radius:12px">
         <b style="font-size:14px;color:var(--indigo)">${esc(p.title)}</b>
         <p style="font-size:13px;color:var(--slate-600);margin-top:6px;line-height:1.55">${esc(p.body)}</p></div>`).join("")}</div></div>
-    <h2 class="section-title">고등학교 진학 가이드</h2>${renderSchoolGuides()}
+    <h2 class="section-title">고등학교 진학 가이드</h2>${renderSchoolGuides()}${renderSchoolSearchBlock("path-hs", { tags, defaultRegion: session?.region || prefs.region || "경기" })}
     <h2 class="section-title">대학 진학 가이드</h2>${renderUniGuides(tags)}
     <h2 class="section-title">경로 타임라인</h2><div class="card">${renderTimeline(path)}</div>`;
   bindGoalForm(prefs, tags, result?.testDisplayName);
+  bindSchoolSearchBlock("path-hs", { prefs, tags, autoSearch: true });
   if (session && prefs.studentId) bindDiscussion(session.id, prefs.studentId.trim(), "student", shareUrl);
 }
 
